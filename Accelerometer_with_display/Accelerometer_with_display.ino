@@ -1,12 +1,12 @@
-#include <Wire.h>
-#include "LedControl.h"
+#include <Wire.h>       //I2C library
+#include "LedControl.h" //MAX72XX library
 
 /*
- Now we need a LedControl to work with.
- pin 12 is connected to the DataIn 
- pin 11 is connected to the CLK 
- pin 10 is connected to LOAD 
- We have only a single MAX72XX.
+ A LedControl class
+ pin 12 - DataIn 
+ pin 11 - CLK 
+ pin 10 - CS (LOAD) 
+ We have 1 MAX72XX.
  */
 LedControl lc=LedControl(12,11,10,1);
 
@@ -19,14 +19,6 @@ void DisplaySetup() {
   lc.setIntensity(0,8); /* Set brightness to medium */
   lc.clearDisplay(0);   /* Clear display */
 }
-void DisplayLoop() {
-
-
-
-
-
-}
-
 void GyroscopeSetup() {
   /*Gyroscope setup*/
   Wire.begin();                     // start I2C library
@@ -36,6 +28,7 @@ void GyroscopeSetup() {
   Wire.endTransmission(true);       // End transmission
   Serial.begin(9600);               // start serial communication 9600 B per second
 }
+
 void GyroscopeLoop() {
   Wire.beginTransmission(MPU_ADDR);    // start communicating to MPU_ADDR
   Wire.write(0x43);                    // starting with register 0x3B (ACCEL_XOUT_H)
@@ -43,9 +36,9 @@ void GyroscopeLoop() {
   Wire.requestFrom(MPU_ADDR, 6, true); // request 6 registers
   
   // "Wire.read()<<8 | Wire.read();" means two registers are read and stored in the same variable
-  gyroX = Wire.read()<<8 | Wire.read(); // reading registers: 0x3B (ACCEL_XOUT_H) and 0x3C (ACCEL_XOUT_L)
-  gyroY = Wire.read()<<8 | Wire.read(); // reading registers: 0x3D (ACCEL_YOUT_H) and 0x3E (ACCEL_YOUT_L)
-  gyroZ = Wire.read()<<8 | Wire.read(); // reading registers: 0x3F (ACCEL_ZOUT_H) and 0x40 (ACCEL_ZOUT_L)
+  aX = Wire.read()<<8 | Wire.read(); // reading registers: 0x3B (ACCEL_XOUT_H) and 0x3C (ACCEL_XOUT_L)
+  aY = Wire.read()<<8 | Wire.read(); // reading registers: 0x3D (ACCEL_YOUT_H) and 0x3E (ACCEL_YOUT_L)
+  aZ = Wire.read()<<8 | Wire.read(); // reading registers: 0x3F (ACCEL_ZOUT_H) and 0x40 (ACCEL_ZOUT_L)
 /*
   // print data
   Serial.print("gX = "); Serial.println(gyroX);
@@ -63,12 +56,18 @@ void GyroscopeLoop() {
   GyZ=Wire.read()<<8|Wire.read();  // 0x47 (GYRO_ZOUT_H) & 0x48 (GYRO_ZOUT_L) 
 */
 }
+void DisplayLoop() {
+
+
+
+
+
+}
 
 
 void setup() {
   GyroscopeSetup();
   DisplaySetup();
-
 }
 void loop() {
   GyroscopeLoop();
