@@ -38,7 +38,7 @@ void GyroscopeSetup() {
 }
 void GyroscopeLoop() {
   Wire.beginTransmission(MPU_ADDR);    // start communicating to MPU_ADDR
-  Wire.write(0x43);                    // starting with register 0x3B (ACCEL_XOUT_H) [MPU-6000 and MPU-6050 Register Map and Descriptions Revision 4.2, p.40]
+  Wire.write(0x43);                    // starting with register 0x3B (ACCEL_XOUT_H)
   Wire.endTransmission(false);         // The Arduino sends a restart -> the connection is kept active.
   Wire.requestFrom(MPU_ADDR, 6, true); // request 6 registers
   
@@ -53,7 +53,7 @@ void GyroscopeLoop() {
   Serial.print("gZ = "); Serial.println(gyroZ);
   Serial.println();
 */
-/*
+/*REGISTERS NAMES
   AcX=Wire.read()<<8|Wire.read();  // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
   AcY=Wire.read()<<8|Wire.read();  // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
   AcZ=Wire.read()<<8|Wire.read();  // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
