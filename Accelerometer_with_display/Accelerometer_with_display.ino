@@ -1,24 +1,28 @@
 #include <Wire.h>       //I2C library
 #include "LedControl.h" //MAX72XX library
 
-unsigned long int prevTime = millis(); // start counting time in miliseconds, max is 4 294 967 295 ~~ 49,710269618055 days
-unsigned long int currentTime;         // millis() will be called every loop()
+// counting time in miliseconds, max is 4 294 967 295 ~~ 49,710269618055 days
+unsigned long int prevTime;
+unsigned long int currentTime;
 
-LedControl lc=LedControl(12,11,10,1); // new class lc as LedControl; pin 12 -> DataIn;  pin 11 -> CLK;  pin 10 -> CS (LOAD);  We have 1 MAX72XX.
+// new class lc as LedControl; pin 12 - DataIn;  pin 11 - CLK;  pin 10 - CS (LOAD); We have 1 MAX72XX
+LedControl lc=LedControl(12,11,10,1);
 
-const int MPU_ADDR = 0x68;      // I2C address of the MPU-6050. If AD0 pin is set to HIGH, the I2C address will be 0x69.
-int16_t x1, y1, z1;             // accelerometer first read
-int16_t x2, y2, z2;             // accelerometer second read
-int16_t dX, dY, dZ;             // integers for recording DIFFERENCE between x,y,z_1 and x,y,z_2
-int16_t dXYZ;                   // integers for recording ABSOLUTE VECTOR DIFFERENCE
+//I2C address of MPU-6050. If AD0 pin is HIGH -> I2C address = 0x69. Accelerometer's first and second readings. deltas of X,Y,Z and total delta of vector XYZ
+const int MPU_ADDR = 0x68;
+int16_t x1, y1, z1;
+int16_t x2, y2, z2;
+float dX, dY, dZ;
+float dXYZ;
 
-unsigned int Gy521_ReadsPerSecond = 100;
-unsigned int Display_FPS = 50;
+//configuration and timing virables
+unsigned int Gy521_ReadsPerSecond = 10;
+unsigned int Display_FPS = 10;
 unsigned int Gy521_ReadInterval = 1000 / Gy521_ReadsPerSecond;
 unsigned int Display_WriteInterval = 1000 / Display_FPS;
 
-// converts int16 to string, resulting strings will have THE SAME LENGHT in the debug monitor.
-char temp_str[3]; // temporary variable for convert function
+// converts int16 to string, resulting strings will have THE SAME LENGHT in the debug monitor. uses temporary virable
+char temp_str[3];
 char* convert_int16_to_str(int16_t i){ sprintf(temp_str, "%6d", i); return temp_str; }
 
 
@@ -32,11 +36,11 @@ void readFromGy521(int16_t &x, int16_t &y, int16_t &z) { //can be negative and u
   y = Wire.read()<<8 | Wire.read(); // reading registers: 0x3D(ACCEL_YOUT_H) and 0x3E(ACCEL_YOUT_L)
   z = Wire.read()<<8 | Wire.read(); // reading registers: 0x3F(ACCEL_ZOUT_H) and 0x40(ACCEL_ZOUT_L)
   
-/* // print raw data
-
-  Serial.print("gX = ");    Serial.print  (convert_int16_to_str(aX));
-  Serial.print(" | gY = "); Serial.print  (convert_int16_to_str(aY));
-  Serial.print(" | gZ = "); Serial.println(convert_int16_to_str(aZ));*/
+ // print raw data
+/*
+  Serial.print("gX = ");    Serial.print  (convert_int16_to_str(x));
+  Serial.print(" | gY = "); Serial.print  (convert_int16_to_str(y));
+  Serial.print(" | gZ = "); Serial.println(convert_int16_to_str(z));*/
 
 /* // REGISTERS NAMES
   AcX=Wire.read()<<8|Wire.read();  // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
@@ -47,10 +51,15 @@ void readFromGy521(int16_t &x, int16_t &y, int16_t &z) { //can be negative and u
   GyY=Wire.read()<<8|Wire.read();  // 0x45 (GYRO_YOUT_H) & 0x46 (GYRO_YOUT_L)
   GyZ=Wire.read()<<8|Wire.read();  // 0x47 (GYRO_ZOUT_H) & 0x48 (GYRO_ZOUT_L) */
 }
-void writeToDisplay() {
-
+void calcTotalDelta() {
+  //eliminate negative values, returns NaN error if not used
+  //x1 = abs(x1); y1 = abs(y1); z1 = abs(z1);
+  //x2 = abs(x1); y2 = abs(y2); z2 = abs(z2);
+  
+  dX = abs(x2-x1); dY = abs(y2-y1); dZ = abs(z2-z1);
+  dXYZ = sqrt(dX*dX + dY*dY + dZ*dZ);
+  //Serial.println(dXYZ);
 }
-
 
 void setup() {
   /*Gy-521 setup*/
@@ -59,14 +68,13 @@ void setup() {
   Wire.write(0x6B);                 // PWR_MGMT_1 - write to  Power Management register 0x6B B not 8 !
   Wire.write(0);                    // Zero - wake up MPU-6050
   Wire.endTransmission(true);       // End transmission
-  Serial.begin(19200);              // start serial communication 100 KB per second
+  Serial.begin(9600);              // start serial communication 100 KB per second
 
   /*Display setup*/
   lc.shutdown(0,false); /* Wakeup call for MAX72XX */
   lc.setIntensity(0,8); /* Set brightness to medium */
   lc.clearDisplay(0);   /* Clear display */
 }
-
 
 enum State { WAIT_FIRST, WAIT_SECOND };
 State currentState = WAIT_FIRST;
@@ -75,14 +83,36 @@ void loop() {
   currentTime = millis();
 
   if(currentState == WAIT_FIRST && (currentTime - prevTime >= Gy521_ReadInterval)) { 
-    readFromGy521(x2, y2, z2);
+    readFromGy521(x1, y1, z1);
+
     prevTime = currentTime;
     currentState = WAIT_SECOND;
   }
 
-  if(currentTime - prevTime >= Display_WriteInterval) {
-    writeToDisplay();
+  if(currentState == WAIT_SECOND && (currentTime - prevTime >= Gy521_ReadInterval)) { 
+    readFromGy521(x2, y2, z2);
+
+    Serial.print("x1: "); Serial.print(convert_int16_to_str(x1));
+    Serial.print(" | y1: "); Serial.print(convert_int16_to_str(y1));
+    Serial.print(" | z1: "); Serial.print(convert_int16_to_str(z1));
+
+    Serial.print(" |       x2: "); Serial.print(convert_int16_to_str(x2));
+    Serial.print(" | y2: "); Serial.print(convert_int16_to_str(y2));
+    Serial.print(" | z2: "); Serial.print(convert_int16_to_str(z2));
+
+    Serial.print(" |       dX: "); Serial.print(convert_int16_to_str(dX));
+    Serial.print(" | dY: "); Serial.print(convert_int16_to_str(dY));
+    Serial.print(" | dZ: "); Serial.print(convert_int16_to_str(dZ));
+    Serial.print(" |           dXYZ: "); Serial.println((dXYZ));
+
+    calcTotalDelta();
+
     prevTime = currentTime;
     currentState = WAIT_FIRST;
+  }
+
+  if(currentTime - prevTime >= Display_WriteInterval) {
+    //display logic
+    prevTime = currentTime;
   }
 }
