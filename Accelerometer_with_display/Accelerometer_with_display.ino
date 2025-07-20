@@ -5,8 +5,10 @@
 unsigned long int prevTime;
 unsigned long int currentTime;
 
-// new class lc as LedControl; pin 12 - DataIn;  pin 11 - CLK;  pin 10 - CS (LOAD); We have 1 MAX72XX
-LedControl lc=LedControl(12,11,10,1);
+// new class lc as LedControl; pin 12 - DataIn;  pin 11 - CLK;  pin 10 - CS (CHIP SELECT / LOAD); We have 1 MAX72XX
+LedControl lc=LedControl(12,10,11,1);
+uint8_t ledsIndex; //How many leds to light up after dXYZ is found
+uint8_t row, col; //accesorry vairables
 
 //I2C address of MPU-6050. If AD0 pin is HIGH -> I2C address = 0x69. Accelerometer's first and second readings. deltas of X,Y,Z and total delta of vector XYZ
 const int MPU_ADDR = 0x68;
@@ -16,10 +18,13 @@ float dX, dY, dZ;
 float dXYZ;
 
 //timing virables
-unsigned int Gy521_ReadsPerSecond = 10;
-unsigned int Display_FPS = 10;
+unsigned int Gy521_ReadsPerSecond = 25;
+unsigned int Display_FPS = 25;
 unsigned int Gy521_ReadInterval = Gy521_ReadsPerSecond/1000;
 unsigned int Display_WriteInterval = Display_FPS/1000;
+
+uint8_t ledCount; //How many Leds will be on form 1-64
+int perLedDelay = /*Display_WriteInterval / ledCount*/ 10; //long long to keep each LED on inside a frame
 
 // converts int16 and float to string, resulting strings will have THE SAME LENGHT in the debug monitor. uses temporary virable
 char temp_int_str[6];//int resulting char limit
@@ -40,13 +45,6 @@ void readFromGy521(int16_t &x, int16_t &y, int16_t &z) { //can be negative and u
   x = Wire.read()<<8 | Wire.read(); // reading registers: 0x3B(ACCEL_XOUT_H) and 0x3C(ACCEL_XOUT_L)
   y = Wire.read()<<8 | Wire.read(); // reading registers: 0x3D(ACCEL_YOUT_H) and 0x3E(ACCEL_YOUT_L)
   z = Wire.read()<<8 | Wire.read(); // reading registers: 0x3F(ACCEL_ZOUT_H) and 0x40(ACCEL_ZOUT_L)
-  
- // print raw data
-/*
-  Serial.print("gX = ");    Serial.print  (convert_int16_to_str(x));
-  Serial.print(" | gY = "); Serial.print  (convert_int16_to_str(y));
-  Serial.print(" | gZ = "); Serial.println(convert_int16_to_str(z));*/
-
 /* // REGISTERS NAMES
   AcX=Wire.read()<<8|Wire.read();  // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
   AcY=Wire.read()<<8|Wire.read();  // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
@@ -61,6 +59,33 @@ void calcTotalDelta() {
   dXYZ = sqrt(dX*dX + dY*dY + dZ*dZ);
 }
 
+void writeToDisplay() {
+  ledsIndex = map((long)dXYZ, 0, 2048, 0, 63);
+  ledsIndex = constrain(ledsIndex, 0, 63);
+  ledCount = ledsIndex + 1;
+  /*
+  //test
+  lc.setLed(0,row,col,true);
+  delay(5);
+  lc.setLed(0,row,col,false);
+  */
+  for (int i = 0; i <= ledsIndex; i++) {
+    int row = i % 8; // 0, 1, 2, 3, 4, 5, 6, 7
+    int col = i / 8; // 0, 0, 0, 0, 0, 0, 0, 1, ... 2 etc.
+    lc.setLed(0, row, col, true); //turn off led
+
+    // the last LED
+    if (i >= ledsIndex) {
+      delay(100);
+      lc.setLed(0, row, col, false);
+    }
+    else {
+      lc.setLed(0, row, col, false); // turn off all other LEDS
+    }
+
+  }
+}
+
 void setup() {
   /*Gy-521 setup*/
   Wire.begin();                     // start I2C library
@@ -72,37 +97,33 @@ void setup() {
 
   /*Display setup*/
   lc.shutdown(0,false); /* Wakeup call for MAX72XX */
-  lc.setIntensity(0,8); /* Set brightness to medium */
+  lc.setIntensity(0,10); /* Set brightness to 10/15 */
   lc.clearDisplay(0);   /* Clear display */
-
-  /* Callibration
-  float Callibration[90];
-  for(int i; i>=100; i++) {
-    readFromGy521(x1, y1, z1);
-    delay(Gy521_ReadInterval);
-    readFromGy521(x2, y2, z2);
-    calcTotalDelta();
-  }
-  */
 }
 
+//enum for FIRST READS and SECOND READS
 enum State { WAIT_FIRST, WAIT_SECOND };
 State currentState = WAIT_FIRST;
 
+//VOID LOOP
 void loop() {
-  currentTime = millis();
+   currentTime = millis();
 
+  //Gy521 FIRST read
   if(currentState == WAIT_FIRST && (currentTime - prevTime >= Gy521_ReadInterval)) { 
     readFromGy521(x1, y1, z1);
     calcTotalDelta();
 
+    //writeToDisplay();
     prevTime = currentTime;
     currentState = WAIT_SECOND;
   }
 
+  //Gy521 SECOND read 
   if(currentState == WAIT_SECOND && (currentTime - prevTime >= Gy521_ReadInterval)) { 
     readFromGy521(x2, y2, z2);
     calcTotalDelta();
+
     /*
     //output to serial monitor
     Serial.print("x1: "); Serial.print(convert_int16_to_str(x1));
@@ -111,19 +132,23 @@ void loop() {
     Serial.print(" |       x2: "); Serial.print(convert_int16_to_str(x2));
     Serial.print(" | y2: "); Serial.print(convert_int16_to_str(y2));
     Serial.print(" | z2: "); Serial.print(convert_int16_to_str(z2));
-    */
+    
     Serial.print(" |       dX: "); Serial.print(convert_int16_to_str(dX));
     Serial.print(" | dY: "); Serial.print(convert_int16_to_str(dY));
     Serial.print(" | dZ: "); Serial.print(convert_int16_to_str(dZ));
     
     Serial.print(" |           dXYZ: "); Serial.println(convert_float_to_str(dXYZ));
-    
+    */
+
+    //writeToDisplay();
     prevTime = currentTime;
     currentState = WAIT_FIRST;
   }
 
-  if(currentTime - prevTime >= Display_WriteInterval) {
-    //display logic
+  if(currentTime - prevTime >= Display_WriteInterval) { 
+    writeToDisplay();
     prevTime = currentTime;
+    currentState = WAIT_SECOND;
   }
+
 }
