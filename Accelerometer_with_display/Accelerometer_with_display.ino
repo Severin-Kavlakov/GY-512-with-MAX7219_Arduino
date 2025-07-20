@@ -60,7 +60,7 @@ void calcTotalDelta() {
 }
 
 void writeToDisplay() {
-  ledsIndex = map((long)dXYZ, 0, 2048, 0, 63);
+  ledsIndex = map((long)dXYZ, 0, 1024, 0, 63);
   ledsIndex = constrain(ledsIndex, 0, 63);
 
   ledCount = ledsIndex + 1;
