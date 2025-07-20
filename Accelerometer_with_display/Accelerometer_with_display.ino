@@ -24,7 +24,7 @@ unsigned int Gy521_ReadInterval = Gy521_ReadsPerSecond/1000;
 unsigned int Display_WriteInterval = Display_FPS/1000;
 
 uint8_t ledCount; //How many Leds will be on form 1-64
-int perLedDelay = /*Display_WriteInterval / ledCount*/ 10; //long long to keep each LED on inside a frame
+int perLedDelay;/*Display_WriteInterval / ledCount*/  //how long to keep each LED on inside a frame
 
 // converts int16 and float to string, resulting strings will have THE SAME LENGHT in the debug monitor. uses temporary virable
 char temp_int_str[6];//int resulting char limit
@@ -62,7 +62,10 @@ void calcTotalDelta() {
 void writeToDisplay() {
   ledsIndex = map((long)dXYZ, 0, 2048, 0, 63);
   ledsIndex = constrain(ledsIndex, 0, 63);
+
   ledCount = ledsIndex + 1;
+  perLedDelay = Display_WriteInterval / ledCount;
+  
   /*
   //test
   lc.setLed(0,row,col,true);
@@ -73,15 +76,27 @@ void writeToDisplay() {
     int row = i % 8; // 0, 1, 2, 3, 4, 5, 6, 7
     int col = i / 8; // 0, 0, 0, 0, 0, 0, 0, 1, ... 2 etc.
     lc.setLed(0, row, col, true); //turn off led
+    delay(perLedDelay);
 
     // the last LED
-    if (i >= ledsIndex) {
-      delay(100);
+    if (i >= ledsIndex) { //delay(x)
       lc.setLed(0, row, col, false);
     }
-    else {
-      lc.setLed(0, row, col, false); // turn off all other LEDS
+    else {lc.setLed(0, row, col, true); delayMicroseconds(800); lc.setLed(0, row, col, false); }
+
+/*
+    for (int i = 0; i <= ledsIndex; i++) {
+      int row = i % 8;
+      int col = i / 8;
+      lc.setLed(0, row, col, true);
+      delay(perLedDelay);
+
+     if (i != ledsIndex) {
+       lc.setLed(0, row, col, false); 
+     }
+     else {lc.setLed(0, row, col, true); delay(100); lc.setLed(0, row, col, false); }
     }
+    */
 
   }
 }
