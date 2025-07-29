@@ -1,14 +1,15 @@
-v  #include <Wire.h>       //I2C library
+#include <Wire.h>       //I2C library
 #include "LedControl.h" //MAX72XX library
 
 // counting time in miliseconds, max is 4 294 967 295 ~~ 49,710269618055 days
 unsigned long int prevTime;
+unsigned long int prevTimeDisplay; //separate timer for display, does not work without it 
 unsigned long int currentTime;
 
 // new class lc as LedControl; pin 12 - DataIn;  pin 11 - CLK;  pin 10 - CS (CHIP SELECT / LOAD); We have 1 MAX72XX
 LedControl lc = LedControl(12,11,10,1);
 uint8_t ledsIndex; //How many leds to light up after dXYZ is found
-uint8_t row, col; //accesorry vairables
+uint8_t row, col; //accesorry vairables for the display
 
 //I2C address of MPU-6050. If AD0 pin is HIGH -> I2C address = 0x69. Accelerometer's first and second readings. deltas of X,Y,Z and total delta of vector XYZ
 const int MPU_ADDR = 0x68;
@@ -20,11 +21,8 @@ float dXYZ;
 //timing virables
 const unsigned int Gy521_ReadsPerSecond = 25;
 const unsigned int Display_FPS = 25;
-const unsigned int Gy521_ReadInterval = 1000/Gy521_ReadsPerSecond;
-const unsigned int Display_WriteInterval = 1000/Display_FPS;
-
-uint8_t ledCount; //How many Leds will be on form 1-64
-int perLedDelay;/*Display_WriteInterval / ledCount*/  //how long to keep each LED on inside a frame
+const unsigned long int Gy521_ReadInterval = 1000/Gy521_ReadsPerSecond; // x/1000 works but why? it's 0 when it's an int, 1000/x does not
+const unsigned long int Display_WriteInterval = 1000/Display_FPS;
 
 // converts int16 and float to string, resulting strings will have THE SAME LENGHT in the debug monitor. uses temporary virable
 char temp_int_str[6];//int resulting char limit
@@ -60,43 +58,25 @@ void calcTotalDelta() {
 }
 
 void writeToDisplay() {
-  ledsIndex = map((long)dXYZ, 0, 2048, 0, 63);
-  ledsIndex = constrain(ledsIndex, 0, 63);
-
-  ledCount = ledsIndex + 1;
-  perLedDelay = Display_WriteInterval / ledCount;
-  
+  int mappedIndex = map((long)dXYZ, 0, 2048, 0, 63);
+  mappedIndex = constrain(mappedIndex, 0, 63);
+  ledsIndex = (uint8_t)mappedIndex;
   /*
   //test
   lc.setLed(0,row,col,true);
   delay(5);
   lc.setLed(0,row,col,false);
   */
-  for (int i = 0; i <= ledsIndex; i++) {
-    int row = i % 8; // 0, 1, 2, 3, 4, 5, 6, 7
-    int col = i / 8; // 0, 0, 0, 0, 0, 0, 0, 1, ... 2 etc.
-    lc.setLed(0, row, col, true); //turn off led
-    delay(perLedDelay);
-
+  for (int i1 = 0; i1 < ledsIndex; i1++) {
+    int row = i1 % 8; // 0, 1, 2, 3, 4, 5, 6, 7
+    int col = i1 / 8; // 0, 0, 0, 0, 0, 0, 0, 1, ... 2 etc.
+    lc.setLed(0, row, col, false); //turn off leds
+    
     // the last LED
-    if (i >= ledsIndex) { //delay(x)
-      lc.setLed(0, row, col, false);
+    if (i1 > ledsIndex) {
+      lc.setLed(0, row, col, true); delayMicroseconds(800); lc.setLed(0, row, col, false);
     }
-    else {lc.setLed(0, row, col, true); delayMicroseconds(800); lc.setLed(0, row, col, false); }
-
-/*
-    for (int i = 0; i <= ledsIndex; i++) {
-      int row = i % 8;
-      int col = i / 8;
-      lc.setLed(0, row, col, true);
-      delay(perLedDelay);
-
-     if (i != ledsIndex) {
-       lc.setLed(0, row, col, false); 
-     }
-     else {lc.setLed(0, row, col, true); delay(100); lc.setLed(0, row, col, false); }
-    }
-    */
+    else {lc.setLed(0, row, col, false); }
 
   }
 }
@@ -106,22 +86,23 @@ void setup() {
   Wire.begin();                     // start I2C library
   Wire.beginTransmission(MPU_ADDR); // Begin transmission to I2C slave ( GY-521 )
   Wire.write(0x6B);                 // PWR_MGMT_1 - write to  Power Management register 0x6B B not 8 !
-  Wire.write(0);                    // Zero - wake up MPU-6050
+  Wire.write(0);                    // 0 -> wake up MPU-6050
   Wire.endTransmission(true);       // End transmission
-  Serial.begin(9600);               // start serial communication 100 KB per second
+  Serial.begin(9600);               // start serial communication 9600 bits/second
 
   /*Display setup*/
   lc.shutdown(0,false); /* Wakeup call for MAX72XX */
   lc.setIntensity(0,10); /* Set brightness to 10/15 */
   lc.clearDisplay(0);   /* Clear display */
 
-  /*Callibration*/
+  //Callibration
   const int callibrationSeconds = 5;
-  const int callibrationDeltaReads = calibrationSeconds * Gy521_ReadsPerSecond;
+  int callibrationDeltaReads = 0;
+  callibrationDeltaReads = callibrationSeconds * Gy521_ReadsPerSecond;
   float CallibrationArray[callibrationDeltaReads];
   int callibrationArrayIndex = 0;
   
-  for(int i; i>=callibrationDeltaReads; i++) {
+  for(int i2 = 0; i2 < callibrationDeltaReads; i2++) {
     readFromGy521(x1, y1, z1);
     delay(Gy521_ReadInterval);
     readFromGy521(x2, y2, z2);
@@ -132,9 +113,16 @@ void setup() {
       CallibrationArray[callibrationArrayIndex] = dXYZ;
       callibrationArrayIndex++;
     }
+    
     delay(Gy521_ReadInterval);
   }
-  //find average of dXYZ in CallibrationArray
+  
+  //find average of dXYZ in CallibrationArray and store it in the variable "CallibrationdXYZaverage"
+  float CallibrationdXYZaverage = 0;
+  float CallibrationdXYZsum = 0;
+  for(int i3 = 0; i3 < callibrationArrayIndex; i3++) {CallibrationdXYZsum += CallibrationArray[i3];}
+  CallibrationdXYZaverage = CallibrationdXYZsum / callibrationDeltaReads;
+  
 }
 
 //enum for FIRST READS and SECOND READS
@@ -145,14 +133,14 @@ State currentState = WAIT_FIRST;
 void loop() {
    currentTime = millis();
 
-  //Gy521 FIRST read
+  //FIRST Gy521 sensor read
   if(currentState == WAIT_FIRST && (currentTime - prevTime >= Gy521_ReadInterval)) { 
     readFromGy521(x1, y1, z1);
     calcTotalDelta();
     prevTime = currentTime;
     currentState = WAIT_SECOND;
   }
-  //Gy521 SECOND read 
+  //SECOND Gy521 sensor read 
   if(currentState == WAIT_SECOND && (currentTime - prevTime >= Gy521_ReadInterval)) { 
     readFromGy521(x2, y2, z2);
     calcTotalDelta();
@@ -166,16 +154,18 @@ void loop() {
     Serial.print(" | z2: "); Serial.print(convert_int16_to_str(z2));
     Serial.print(" |       dX: "); Serial.print(convert_int16_to_str(dX));
     Serial.print(" | dY: "); Serial.print(convert_int16_to_str(dY));
-    Serial.print(" | dZ: "); Serial.print(convert_int16_to_str(dZ));
+    Serial.print(" | dZ: "); Serial.print(convert_int16_to_str(dZ)); */
     Serial.print(" |           dXYZ: "); Serial.println(convert_float_to_str(dXYZ));
-    */
+    
     prevTime = currentTime;
     currentState = WAIT_FIRST;
   }
-
-  if(currentTime - prevTime >= Display_WriteInterval) { 
+  
+  //DISPLAY LOGIC
+  if(currentTime - prevTimeDisplay >= Display_WriteInterval) { 
     writeToDisplay();
-    prevTime = currentTime;
+    Serial.println("DISPLAY CALLED");
+    prevTimeDisplay = currentTime;
     //currentState = WAIT_SECOND;
   }
 }
