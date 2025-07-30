@@ -18,13 +18,17 @@ float dX, dY, dZ;
 float dXYZ;
 
 //timing virables
-const unsigned int Gy521_ReadsPerSecond = 25;
-const unsigned int Display_FPS = 25;
+const unsigned int Gy521_ReadsPerSecond = 50;
+const unsigned int Display_FPS = 50;
 const unsigned long int Gy521_ReadInterval = 1000/Gy521_ReadsPerSecond;
 const unsigned long int Display_WriteInterval = 1000/Display_FPS;
 
+bool displayActive = false;                  // Is display active
+unsigned long lastDisplayStartTime = 0;      // When the display was turned on
+const unsigned long DISPLAY_DURATION = 1; // How long to keep LEDs on
+
 //Callibration, constants are computed once at boot
-const int callibrationSeconds = 3;
+const int callibrationSeconds = 5;
 const int callibrationDeltaReads = callibrationSeconds * Gy521_ReadsPerSecond;
 float CallibrationdXYZsum = 0;
 float CallibrationdXYZaverage = 0;
@@ -59,15 +63,11 @@ void calcTotalDelta() {
 }
 
 void writeToDisplay() {
-  ledsIndex = map((long)dXYZ, (long)CallibrationdXYZaverage, 1024, 0, 63); //map the dXYZ to 0-64, use CallibrationdXYZ average as 0
-  
   for (int i1 = 0; i1 <= ledsIndex; i1++) { //per led loop
     row = i1 % 8; // 0, 1, 2, 3, 4, 5, 6, 7
     col = i1 / 8; // 0, 0, 0, 0, 0, 0, 0, 1, ... 2 etc.
-    
-    // the last LED
-    if(i1 >= ledsIndex) {lc.setLed(0, row, col, true); delay(10); lc.setLed(0, row, col, false);}
 
+    lc.setLed(0, row, col, true);
   }
 }
 
@@ -86,6 +86,7 @@ void setup() {
   lc.clearDisplay(0);   /* Clear display */
 
   /*Callibration*/
+  delay(1000);
   for(int i2 = 0; i2 < callibrationDeltaReads; i2++) { //Gy521 reads
     readFromGy521(x1, y1, z1);             //FIRST read
     delay(Gy521_ReadInterval);             //DELAY
@@ -98,21 +99,20 @@ void setup() {
 }
 
 /*VOID LOOP*/
-enum State { WAIT_FIRST, WAIT_SECOND }; //enum for FIRST READS and SECOND READS
-State currentState = WAIT_FIRST;
+bool readFirst = true; //first read
 
 void loop() {
   currentTime = millis(); //Capture current time
 
   //FIRST Gy521 sensor read
-  if(currentState == WAIT_FIRST && (currentTime - prevTime >= Gy521_ReadInterval)) { 
+  if(readFirst == true && (currentTime - prevTime >= Gy521_ReadInterval)) { 
     readFromGy521(x1, y1, z1);
     calcTotalDelta();
     prevTime = currentTime;
-    currentState = WAIT_SECOND;
+    readFirst = false;
   }
   //SECOND Gy521 sensor read 
-  if(currentState == WAIT_SECOND && (currentTime - prevTime >= Gy521_ReadInterval)) { 
+  if(readFirst == false && (currentTime - prevTime >= Gy521_ReadInterval)) { 
     readFromGy521(x2, y2, z2);
     calcTotalDelta();
     /*
@@ -125,17 +125,36 @@ void loop() {
     Serial.print(" | z2: "); Serial.print(convert_int16_to_str(z2));
     Serial.print(" |       dX: "); Serial.print(convert_int16_to_str(dX));
     Serial.print(" | dY: "); Serial.print(convert_int16_to_str(dY));
-    Serial.print(" | dZ: "); Serial.print(convert_int16_to_str(dZ));*/
-    Serial.print(" |           dXYZ: "); Serial.println(/*convert_float_to_str*/(dXYZ));
-    
+    Serial.print(" | dZ: "); Serial.print(convert_int16_to_str(dZ));
+    Serial.print(" |           dXYZ: "); Serial.println(/*convert_float_to_str*//*(dXYZ));
+    */
     prevTime = currentTime;
-    currentState = WAIT_FIRST;
+    readFirst = true;
   }
   
-  //DISPLAY LOGIC
-  if(currentTime - prevTimeDisplay >= Display_WriteInterval) { 
-    writeToDisplay();
+  if (currentTime - prevTimeDisplay >= Display_WriteInterval) {
+    ledsIndex = map((long)dXYZ, (long)(CallibrationdXYZaverage*1.5), 4096, 0, 63); //map the dXYZ to 0-64, use CallibrationdXYZ*1.5 as 0 (the top 25%)
+    ledsIndex = constrain(ledsIndex, 0, 63);
+    
+    if (!displayActive && ledsIndex > 5) {                                   //if display not active AND more than X leds need to be on:
+      for (int i1 = 0; i1 <= ledsIndex; i1++) { //per led loop
+        row = i1 % 8; // 0, 1, 2, 3, 4, 5, 6, 7
+        col = i1 / 8; // 0, 0, 0, 0, 0, 0, 0, 1, ... 2 etc.
+        lc.setLed(0, row, col, true);
+      }
+      displayActive = true;               //display is now active
+      lastDisplayStartTime = currentTime; //update the last time the dispaly was on
+    }
+
+    
+    if (displayActive && (currentTime - lastDisplayStartTime >= DISPLAY_DURATION)) {
+      lc.clearDisplay(0);       // Turn off LEDs
+      displayActive = false;    // Wait for dispalyActive to be TRUE
+    }
+
+    
     prevTimeDisplay = currentTime;
-    currentState = WAIT_SECOND;
   }
 }
+
+//SOMETHING IS FLICKERING ALL THE LEDs ON FOR WHATEVER REASON ???????
