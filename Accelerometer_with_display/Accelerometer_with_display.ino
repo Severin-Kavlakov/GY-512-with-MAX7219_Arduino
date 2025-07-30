@@ -6,10 +6,9 @@ unsigned long int prevTime;
 unsigned long int prevTimeDisplay; //separate timer for display, does not work without it 
 unsigned long int currentTime;
 
-// new class lc as LedControl; pin 12 - DataIn;  pin 11 - CLK;  pin 10 - CS (CHIP SELECT / LOAD); We have 1 MAX72XX
-LedControl lc = LedControl(12,11,10,1);
-uint8_t ledsIndex; //How many leds to light up after dXYZ is found
-uint8_t row, col; //accesorry vairables for the display
+LedControl lc = LedControl(12,11,10,1); // new class lc as LedControl; pin 12 - DataIn;  pin 11 - CLK;  pin 10 - CS (CHIP SELECT / LOAD); We have 1 MAX72XX
+uint8_t ledsIndex;                      // How many leds to light up after dXYZ is found
+uint8_t row, col;                       // accesorry vairables for display
 
 //I2C address of MPU-6050. If AD0 pin is HIGH -> I2C address = 0x69. Accelerometer's first and second readings. deltas of X,Y,Z and total delta of vector XYZ
 const int MPU_ADDR = 0x68;
@@ -27,27 +26,19 @@ const unsigned long int Display_WriteInterval = 1000/Display_FPS;
 //temp variable for display pixel mapping
 int mappedIndex = 0;
 
-//Callibration
-const int callibrationSeconds = 5;
-int callibrationDeltaReads = 0;
-float CallibrationArray[];
-int callibrationArrayIndex = 0;
-  
+//Callibration, constants are computed once at boot
+const int callibrationSeconds = 15;
+const int callibrationDeltaReads = callibrationSeconds * Gy521_ReadsPerSecond;
+float CallibrationArray[callibrationDeltaReads];
+int callibrationArrayIndex = 0;  
 float CallibrationdXYZsum = 0;
 float CallibrationdXYZaverage = 0;
 
-
-
-
 // converts int16 and float to string, resulting strings will have THE SAME LENGHT in the debug monitor. uses temporary virable
-char temp_int_str[6];//int resulting char limit
-char* convert_int16_to_str(int16_t i){ sprintf(temp_int_str, "%6d", i); return temp_int_str; }
-char temp_float_str[9];//float resulting char limit
-char* convert_float_to_str(float f) {
-    dtostrf(f, 9, 2, temp_float_str);//float resulting char limit and 2 decimal points
-    return temp_float_str;
-}
-
+char temp_int_str[6]; 
+char* convert_int16_to_str(int16_t i){sprintf(temp_int_str, "%6d", i); return temp_int_str;} //int resulting char limit and no decimal points
+char temp_float_str[9];
+char* convert_float_to_str(float f) {dtostrf(f, 9, 2, temp_float_str); return temp_float_str;} //float resulting char limit and 2 decimal points
 
 void readFromGy521(int16_t &x, int16_t &y, int16_t &z) { //can be negative and up to +- 32000; modifies original virables, doesn't return anything
   Wire.beginTransmission(MPU_ADDR);    // start communicating to MPU_ADDR
@@ -108,10 +99,7 @@ void setup() {
   lc.setIntensity(0,10); /* Set brightness to 10/15 */
   lc.clearDisplay(0);   /* Clear display */
 
-  /*Callibration*/
-  callibrationDeltaReads = callibrationSeconds * Gy521_ReadsPerSecond;
-  CallibrationArray[callibrationDeltaReads];
-  
+  /*Callibration*/  
   //Gy521 reads
   for(int i2 = 0; i2 < callibrationDeltaReads; i2++) {
     //FIRST read and DELAY
@@ -163,9 +151,9 @@ void loop() {
     Serial.print(" | z2: "); Serial.print(convert_int16_to_str(z2));
     Serial.print(" |       dX: "); Serial.print(convert_int16_to_str(dX));
     Serial.print(" | dY: "); Serial.print(convert_int16_to_str(dY));
-    Serial.print(" | dZ: "); Serial.print(convert_int16_to_str(dZ));
+    Serial.print(" | dZ: "); Serial.print(convert_int16_to_str(dZ));*/
     Serial.print(" |           dXYZ: "); Serial.println(convert_float_to_str(dXYZ));
-    */
+    
     prevTime = currentTime;
     currentState = WAIT_FIRST;
   }
@@ -173,7 +161,6 @@ void loop() {
   //DISPLAY LOGIC
   if(currentTime - prevTimeDisplay >= Display_WriteInterval) { 
     writeToDisplay();
-    //Serial.println("DISPLAY LOGIC");
     prevTimeDisplay = currentTime;
     currentState = WAIT_SECOND;
   }
