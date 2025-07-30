@@ -23,23 +23,18 @@ const unsigned int Display_FPS = 25;
 const unsigned long int Gy521_ReadInterval = 1000/Gy521_ReadsPerSecond;
 const unsigned long int Display_WriteInterval = 1000/Display_FPS;
 
-//temp variable for display pixel mapping
-int mappedIndex = 0;
-
 //Callibration, constants are computed once at boot
-const int callibrationSeconds = 15;
+const int callibrationSeconds = 3;
 const int callibrationDeltaReads = callibrationSeconds * Gy521_ReadsPerSecond;
-float CallibrationArray[callibrationDeltaReads];
-int callibrationArrayIndex = 0;  
 float CallibrationdXYZsum = 0;
 float CallibrationdXYZaverage = 0;
-
-// converts int16 and float to string, resulting strings will have THE SAME LENGHT in the debug monitor. uses temporary virable
+/*
+// USE ONLY IF SERIAL MONITOR IS ACTIVE converts int16 and float to string, resulting strings will have THE SAME LENGHT in the debug monitor. uses temporary virable
 char temp_int_str[6]; 
-char* convert_int16_to_str(int16_t i){sprintf(temp_int_str, "%6d", i); return temp_int_str;} //int resulting char limit and no decimal points
+char* convert_int16_to_str(int16_t i){sprintf(temp_int_str, "%6d", i); return temp_int_str;}   //int resulting char limit and no decimal points
 char temp_float_str[9];
 char* convert_float_to_str(float f) {dtostrf(f, 9, 2, temp_float_str); return temp_float_str;} //float resulting char limit and 2 decimal points
-
+*/
 void readFromGy521(int16_t &x, int16_t &y, int16_t &z) { //can be negative and up to +- 32000; modifies original virables, doesn't return anything
   Wire.beginTransmission(MPU_ADDR);    // start communicating to MPU_ADDR
   Wire.write(0x3B);                    // starting with register 0x3B (ACCEL_XOUT_H)
@@ -64,24 +59,15 @@ void calcTotalDelta() {
 }
 
 void writeToDisplay() {
-  mappedIndex = map((long)dXYZ, (long)CallibrationdXYZaverage, 1024, 0, 63);
-  mappedIndex = constrain(mappedIndex, 0, 63);
-  ledsIndex = (uint8_t)mappedIndex;
-  /*
-  //test
-  lc.setLed(0,row,col,true);
-  delay(5);
-  lc.setLed(0,row,col,false);
-  */
-
-  for (int i1 = 0; i1 <= ledsIndex; i1++) {
+  ledsIndex = map((long)dXYZ, (long)CallibrationdXYZaverage, 1024, 0, 63); //map the dXYZ to 0-64, use CallibrationdXYZ average as 0
+  
+  for (int i1 = 0; i1 <= ledsIndex; i1++) { //per led loop
     row = i1 % 8; // 0, 1, 2, 3, 4, 5, 6, 7
     col = i1 / 8; // 0, 0, 0, 0, 0, 0, 0, 1, ... 2 etc.
-      
-    //lc.setLed(0, row, col, true); delay(perLedDelay); lc.setLed(0, row, col, false); //NAY SETNE POCHNA DA RABOTI BE 
     
     // the last LED
     if(i1 >= ledsIndex) {lc.setLed(0, row, col, true); delay(10); lc.setLed(0, row, col, false);}
+
   }
 }
 
@@ -99,36 +85,24 @@ void setup() {
   lc.setIntensity(0,10); /* Set brightness to 10/15 */
   lc.clearDisplay(0);   /* Clear display */
 
-  /*Callibration*/  
-  //Gy521 reads
-  for(int i2 = 0; i2 < callibrationDeltaReads; i2++) {
-    //FIRST read and DELAY
-    readFromGy521(x1, y1, z1);
-    delay(Gy521_ReadInterval);
-    
-    //SECOND read and CALCULATE DELTAS
-    readFromGy521(x2, y2, z2);
-    calcTotalDelta();
-    
-    //append dXYZ to array
-    if (callibrationArrayIndex < callibrationDeltaReads) {CallibrationArray[callibrationArrayIndex] = dXYZ; callibrationArrayIndex++;}
-    
-    //DELAY
-    delay(Gy521_ReadInterval);
+  /*Callibration*/
+  for(int i2 = 0; i2 < callibrationDeltaReads; i2++) { //Gy521 reads
+    readFromGy521(x1, y1, z1);             //FIRST read
+    delay(Gy521_ReadInterval);             //DELAY
+    readFromGy521(x2, y2, z2);             //SECOND read
+    calcTotalDelta();                      //CALCULATE DELTAS
+    CallibrationdXYZsum += dXYZ;           //add dXYZ to CallibrationdXYZsum
+    delay(Gy521_ReadInterval);             //DELAY
   }
-  
-  //store sum of dXYZ from CallibrationArray into CallibrationdXYZsum, find average and store it in CallibrationdXYZaverage
-  for(int i3 = 0; i3 < callibrationArrayIndex; i3++) {CallibrationdXYZsum += CallibrationArray[i3];}
-  CallibrationdXYZaverage = CallibrationdXYZsum / callibrationDeltaReads;
+  CallibrationdXYZaverage = CallibrationdXYZsum / callibrationDeltaReads;   //find AVERAGE and store it in CallibrationdXYZaverage
 }
 
-//enum for FIRST READS and SECOND READS
-enum State { WAIT_FIRST, WAIT_SECOND };
+/*VOID LOOP*/
+enum State { WAIT_FIRST, WAIT_SECOND }; //enum for FIRST READS and SECOND READS
 State currentState = WAIT_FIRST;
 
 void loop() {
-  //Capture current time
-  currentTime = millis();
+  currentTime = millis(); //Capture current time
 
   //FIRST Gy521 sensor read
   if(currentState == WAIT_FIRST && (currentTime - prevTime >= Gy521_ReadInterval)) { 
@@ -152,7 +126,7 @@ void loop() {
     Serial.print(" |       dX: "); Serial.print(convert_int16_to_str(dX));
     Serial.print(" | dY: "); Serial.print(convert_int16_to_str(dY));
     Serial.print(" | dZ: "); Serial.print(convert_int16_to_str(dZ));*/
-    Serial.print(" |           dXYZ: "); Serial.println(convert_float_to_str(dXYZ));
+    Serial.print(" |           dXYZ: "); Serial.println(/*convert_float_to_str*/(dXYZ));
     
     prevTime = currentTime;
     currentState = WAIT_FIRST;
