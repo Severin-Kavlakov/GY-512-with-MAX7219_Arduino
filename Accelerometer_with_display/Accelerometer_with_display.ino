@@ -7,7 +7,7 @@ unsigned long int prevTimeDisplay; //separate timer for display, does not work w
 unsigned long int currentTime;
 
 LedControl lc = LedControl(12,11,10,1); // new class lc as LedControl; pin 12 - DataIn;  pin 11 - CLK;  pin 10 - CS (CHIP SELECT / LOAD); We have 1 MAX72XX
-uint8_t ledsIndex;                      // How many leds to light up after dXYZ is found
+int ledsIndex;                      // How many leds to light up after dXYZ is found
 uint8_t row, col;                       // accesorry vairables for display
 
 //I2C address of MPU-6050. If AD0 pin is HIGH -> I2C address = 0x69. Accelerometer's first and second readings. deltas of X,Y,Z and total delta of vector XYZ
@@ -23,22 +23,18 @@ const unsigned int Display_FPS = 50;
 const unsigned long int Gy521_ReadInterval = 1000/Gy521_ReadsPerSecond;
 const unsigned long int Display_WriteInterval = 1000/Display_FPS;
 
-bool displayActive = false;                  // Is display active
-unsigned long lastDisplayStartTime = 0;      // When the display was turned on
-const unsigned long DISPLAY_DURATION = 1; // How long to keep LEDs on
-
 //Callibration, constants are computed once at boot
 const int callibrationSeconds = 5;
 const int callibrationDeltaReads = callibrationSeconds * Gy521_ReadsPerSecond;
 float CallibrationdXYZsum = 0;
 float CallibrationdXYZaverage = 0;
-/*
+
 // USE ONLY IF SERIAL MONITOR IS ACTIVE converts int16 and float to string, resulting strings will have THE SAME LENGHT in the debug monitor. uses temporary virable
 char temp_int_str[6]; 
 char* convert_int16_to_str(int16_t i){sprintf(temp_int_str, "%6d", i); return temp_int_str;}   //int resulting char limit and no decimal points
 char temp_float_str[9];
 char* convert_float_to_str(float f) {dtostrf(f, 9, 2, temp_float_str); return temp_float_str;} //float resulting char limit and 2 decimal points
-*/
+
 void readFromGy521(int16_t &x, int16_t &y, int16_t &z) { //can be negative and up to +- 32000; modifies original virables, doesn't return anything
   Wire.beginTransmission(MPU_ADDR);    // start communicating to MPU_ADDR
   Wire.write(0x3B);                    // starting with register 0x3B (ACCEL_XOUT_H)
@@ -48,7 +44,8 @@ void readFromGy521(int16_t &x, int16_t &y, int16_t &z) { //can be negative and u
   x = Wire.read()<<8 | Wire.read(); // reading registers: 0x3B(ACCEL_XOUT_H) and 0x3C(ACCEL_XOUT_L)
   y = Wire.read()<<8 | Wire.read(); // reading registers: 0x3D(ACCEL_YOUT_H) and 0x3E(ACCEL_YOUT_L)
   z = Wire.read()<<8 | Wire.read(); // reading registers: 0x3F(ACCEL_ZOUT_H) and 0x40(ACCEL_ZOUT_L)
-/* // REGISTERS NAMES
+
+/*// REGISTERS NAMES
   AcX=Wire.read()<<8|Wire.read();  // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
   AcY=Wire.read()<<8|Wire.read();  // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
   AcZ=Wire.read()<<8|Wire.read();  // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)
@@ -59,16 +56,28 @@ void readFromGy521(int16_t &x, int16_t &y, int16_t &z) { //can be negative and u
 }
 void calcTotalDelta() {  
   dX = fabs(x2-x1); dY = fabs(y2-y1); dZ = fabs(z2-z1);
-  dXYZ = sqrt(dX*dX + dY*dY + dZ*dZ);
+  dXYZ = sqrt((dX*dX) + (dY*dY) + (dZ*dZ));
 }
 
+unsigned long lastLEDtimer = 0;
+unsigned long otherLEDtimer = 0;
+
 void writeToDisplay() {
+  ledsIndex = map((long)dXYZ, (long)(CallibrationdXYZaverage), 2048, 0, 63); //map the dXYZ to 0-64, use CallibrationdXYZ*1.5 as 0 (the top 25%)
+  ledsIndex = constrain(ledsIndex, 0, 63);
+
   for (int i1 = 0; i1 <= ledsIndex; i1++) { //per led loop
     row = i1 % 8; // 0, 1, 2, 3, 4, 5, 6, 7
     col = i1 / 8; // 0, 0, 0, 0, 0, 0, 0, 1, ... 2 etc.
 
-    lc.setLed(0, row, col, true);
+    //lc.setLed(0, row, col, true);
+    //delay( (Display_WriteInterval / (ledsIndex+1)) );
+
+    // the last LED
+    if (i1 >= ledsIndex) { lc.setLed(0, row, col, true); if(currentTime - lastLEDtimer >= 1000) {}; lc.setLed(0, row, col, false); }
+    else                 { lc.setLed(0, row, col, true); delayMicroseconds(800);  lc.setLed(0, row, col, false); }
   }
+  lc.clearDisplay(0);
 }
 
 void setup() {
@@ -82,7 +91,7 @@ void setup() {
 
   /*Display setup*/
   lc.shutdown(0,false); /* Wakeup call for MAX72XX */
-  lc.setIntensity(0,10); /* Set brightness to 10/15 */
+  lc.setIntensity(0,7); /* Set brightness to 7/15 */
   lc.clearDisplay(0);   /* Clear display */
 
   /*Callibration*/
@@ -126,35 +135,14 @@ void loop() {
     Serial.print(" |       dX: "); Serial.print(convert_int16_to_str(dX));
     Serial.print(" | dY: "); Serial.print(convert_int16_to_str(dY));
     Serial.print(" | dZ: "); Serial.print(convert_int16_to_str(dZ));
-    Serial.print(" |           dXYZ: "); Serial.println(/*convert_float_to_str*//*(dXYZ));
+    Serial.print(" |           dXYZ: "); Serial.println(convert_float_to_str(dXYZ));
     */
     prevTime = currentTime;
     readFirst = true;
   }
   
   if (currentTime - prevTimeDisplay >= Display_WriteInterval) {
-    ledsIndex = map((long)dXYZ, (long)(CallibrationdXYZaverage*1.5), 4096, 0, 63); //map the dXYZ to 0-64, use CallibrationdXYZ*1.5 as 0 (the top 25%)
-    ledsIndex = constrain(ledsIndex, 0, 63);
-    
-    if (!displayActive && ledsIndex > 5) {                                   //if display not active AND more than X leds need to be on:
-      for (int i1 = 0; i1 <= ledsIndex; i1++) { //per led loop
-        row = i1 % 8; // 0, 1, 2, 3, 4, 5, 6, 7
-        col = i1 / 8; // 0, 0, 0, 0, 0, 0, 0, 1, ... 2 etc.
-        lc.setLed(0, row, col, true);
-      }
-      displayActive = true;               //display is now active
-      lastDisplayStartTime = currentTime; //update the last time the dispaly was on
-    }
-
-    
-    if (displayActive && (currentTime - lastDisplayStartTime >= DISPLAY_DURATION)) {
-      lc.clearDisplay(0);       // Turn off LEDs
-      displayActive = false;    // Wait for dispalyActive to be TRUE
-    }
-
-    
+    writeToDisplay();
     prevTimeDisplay = currentTime;
   }
 }
-
-//SOMETHING IS FLICKERING ALL THE LEDs ON FOR WHATEVER REASON ???????
