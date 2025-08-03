@@ -63,21 +63,52 @@ unsigned long lastLEDtimer = 0;
 unsigned long otherLEDtimer = 0;
 
 void writeToDisplay() {
-  ledsIndex = map((long)dXYZ, (long)(CallibrationdXYZaverage), 2048, 0, 63); //map the dXYZ to 0-64, use CallibrationdXYZ*1.5 as 0 (the top 25%)
-  ledsIndex = constrain(ledsIndex, 0, 63);
+  //map the dXYZ to 0-64, use CallibrationdXYZ as 0, constrain to (0-63)
+  ledsIndex = map((long)dXYZ, (long)(CallibrationdXYZaverage), 2048, 0, 63); ledsIndex = constrain(ledsIndex, 0, 63);
+  
+  static int currentLED = 0;
+  static unsigned long ledMicrosTimer = 0; //NORMAL LEDS Micros timer
+  static unsigned long lastLEDMillisTimer = 0; //LAST LED Millis timer
+  static bool isLastLit = false;
 
-  for (int i1 = 0; i1 <= ledsIndex; i1++) { //per led loop
-    row = i1 % 8; // 0, 1, 2, 3, 4, 5, 6, 7
-    col = i1 / 8; // 0, 0, 0, 0, 0, 0, 0, 1, ... 2 etc.
+  const unsigned long lastLED_Duration = 1000; // how long to keep LAST LED on
+  const unsigned int perLedInterval = 800;     // micro seconds per NORMAL LED
 
-    //lc.setLed(0, row, col, true);
-    //delay( (Display_WriteInterval / (ledsIndex+1)) );
+  unsigned long nowMicros = micros();
+  unsigned long nowMillis = millis();
 
-    // the last LED
-    if (i1 >= ledsIndex) { lc.setLed(0, row, col, true); if(currentTime - lastLEDtimer >= 1000) {}; lc.setLed(0, row, col, false); }
-    else                 { lc.setLed(0, row, col, true); delayMicroseconds(800);  lc.setLed(0, row, col, false); }
+  // Turn off previous LED
+  if (currentLED > 0 && currentLED <= ledsIndex) {
+    int prevRow = (currentLED - 1) % 8;
+    int prevCol = (currentLED - 1) / 8;
+    lc.setLed(0, prevRow, prevCol, false);
   }
-  lc.clearDisplay(0);
+
+  // NORMAL LEDs -> microsecond delay
+  if (currentLED < ledsIndex) { //if current LED is smaller and NOT EQUAL to ledsIndex --> All except LAST
+    if (nowMicros - ledMicrosTimer >= perLedInterval) {
+      row = currentLED % 8;
+      col = currentLED / 8;
+      lc.setLed(0, row, col, true);
+      ledMicrosTimer = nowMicros;
+      currentLED++;
+    }
+  }
+
+  // Final LED logic (last LED stays lit for 5 seconds)
+  else if (currentLED == ledsIndex && !isLastLit) {
+    row = currentLED % 8;
+    col = currentLED / 8;
+    lc.setLed(0, row, col, true);
+    lastLEDMillisTimer = nowMillis;
+    isLastLit = true;
+  }
+  else if (isLastLit && (nowMillis - lastLEDMillisTimer >= lastLED_Duration)) {
+    lc.setLed(0, row, col, false);
+    currentLED = 0;
+    isLastLit = false;
+    lc.clearDisplay(0); // optional: clear all LEDs
+  }
 }
 
 void setup() {
@@ -90,9 +121,9 @@ void setup() {
   Serial.begin(9600);               // start serial communication 9600 bits/second
 
   /*Display setup*/
-  lc.shutdown(0,false); /* Wakeup call for MAX72XX */
-  lc.setIntensity(0,7); /* Set brightness to 7/15 */
-  lc.clearDisplay(0);   /* Clear display */
+  lc.shutdown(0,false); // Wakeup call for MAX72XX 
+  lc.setIntensity(0,7); // Set brightness to 7/15
+  lc.clearDisplay(0);   // Clear display
 
   /*Callibration*/
   delay(1000);
