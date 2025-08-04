@@ -7,7 +7,7 @@ unsigned long int prevTimeDisplay; //separate timer for display, does not work w
 unsigned long int currentTime;
 
 LedControl lc = LedControl(12,11,10,1); // new class lc as LedControl; pin 12 - DataIn;  pin 11 - CLK;  pin 10 - CS (CHIP SELECT / LOAD); We have 1 MAX72XX
-int ledsIndex;                      // How many leds to light up after dXYZ is found
+int ledsIndex;                          // How many leds to light up after dXYZ is found
 uint8_t row, col;                       // accesorry vairables for display
 
 //I2C address of MPU-6050. If AD0 pin is HIGH -> I2C address = 0x69. Accelerometer's first and second readings. deltas of X,Y,Z and total delta of vector XYZ
@@ -18,10 +18,10 @@ float dX, dY, dZ;
 float dXYZ;
 
 //timing virables
-const unsigned int Gy521_ReadsPerSecond = 50;
-const unsigned int Display_FPS = 50;
-const unsigned long int Gy521_ReadInterval = 1000/Gy521_ReadsPerSecond;
-const unsigned long int Display_WriteInterval = 1000/Display_FPS;
+const unsigned int Gy521_ReadsPerSecond = 20;
+const unsigned int Display_FPS = 20;
+unsigned long int Gy521_ReadInterval = 1000/Gy521_ReadsPerSecond;
+unsigned long int Display_WriteInterval = 1000/Display_FPS;
 
 //Callibration, constants are computed once at boot
 const int callibrationSeconds = 5;
@@ -29,7 +29,7 @@ const int callibrationDeltaReads = callibrationSeconds * Gy521_ReadsPerSecond;
 float CallibrationdXYZsum = 0;
 float CallibrationdXYZaverage = 0;
 
-// USE ONLY IF SERIAL MONITOR IS ACTIVE converts int16 and float to string, resulting strings will have THE SAME LENGHT in the debug monitor. uses temporary virable
+// converts int16 and float to string, resulting strings will have THE SAME LENGHT in the debug monitor. uses temporary virable
 char temp_int_str[6]; 
 char* convert_int16_to_str(int16_t i){sprintf(temp_int_str, "%6d", i); return temp_int_str;}   //int resulting char limit and no decimal points
 char temp_float_str[9];
@@ -55,59 +55,26 @@ void readFromGy521(int16_t &x, int16_t &y, int16_t &z) { //can be negative and u
   GyZ=Wire.read()<<8|Wire.read();  // 0x47 (GYRO_ZOUT_H) & 0x48 (GYRO_ZOUT_L) */
 }
 void calcTotalDelta() {  
-  dX = fabs(x2-x1); dY = fabs(y2-y1); dZ = fabs(z2-z1);
-  dXYZ = sqrt((dX*dX) + (dY*dY) + (dZ*dZ));
+  dX = fabs(x2-x1); dY = fabs(y2-y1); dZ = fabs(z2-z1); // Find the X, Y and Z companents of the vibration
+  dXYZ = sqrt((dX*dX) + (dY*dY) + (dZ*dZ));             // Calculate size of vibration's vector
 }
 
-unsigned long lastLEDtimer = 0;
-unsigned long otherLEDtimer = 0;
+const unsigned int LedInterval = 100; // miliseconds per led
+unsigned int prevTimeLed = 0;         // milisecond timer for each led
 
 void writeToDisplay() {
   //map the dXYZ to 0-64, use CallibrationdXYZ as 0, constrain to (0-63)
-  ledsIndex = map((long)dXYZ, (long)(CallibrationdXYZaverage), 2048, 0, 63); ledsIndex = constrain(ledsIndex, 0, 63);
-  
-  static int currentLED = 0;
-  static unsigned long ledMicrosTimer = 0; //NORMAL LEDS Micros timer
-  static unsigned long lastLEDMillisTimer = 0; //LAST LED Millis timer
-  static bool isLastLit = false;
+  ledsIndex = map((long)dXYZ, (long)CallibrationdXYZaverage, 2048, 0, 63);
+  ledsIndex = constrain(ledsIndex, 0, 63);
 
-  const unsigned long lastLED_Duration = 1000; // how long to keep LAST LED on
-  const unsigned int perLedInterval = 800;     // micro seconds per NORMAL LED
-
-  unsigned long nowMicros = micros();
-  unsigned long nowMillis = millis();
-
-  // Turn off previous LED
-  if (currentLED > 0 && currentLED <= ledsIndex) {
-    int prevRow = (currentLED - 1) % 8;
-    int prevCol = (currentLED - 1) / 8;
-    lc.setLed(0, prevRow, prevCol, false);
-  }
-
-  // NORMAL LEDs -> microsecond delay
-  if (currentLED < ledsIndex) { //if current LED is smaller and NOT EQUAL to ledsIndex --> All except LAST
-    if (nowMicros - ledMicrosTimer >= perLedInterval) {
-      row = currentLED % 8;
-      col = currentLED / 8;
-      lc.setLed(0, row, col, true);
-      ledMicrosTimer = nowMicros;
-      currentLED++;
-    }
-  }
-
-  // Final LED logic (last LED stays lit for 5 seconds)
-  else if (currentLED == ledsIndex && !isLastLit) {
-    row = currentLED % 8;
-    col = currentLED / 8;
+  for (int i1 = 0; i1 <= ledsIndex; i1++) {
+    row = i1 % 8; // 0, 1, 2, 3, 4, 5, 6, 7
+    col = i1 / 8; // 0, 0, 0, 0, 0, 0, 0, 1, ... 2 etc
     lc.setLed(0, row, col, true);
-    lastLEDMillisTimer = nowMillis;
-    isLastLit = true;
   }
-  else if (isLastLit && (nowMillis - lastLEDMillisTimer >= lastLED_Duration)) {
-    lc.setLed(0, row, col, false);
-    currentLED = 0;
-    isLastLit = false;
-    lc.clearDisplay(0); // optional: clear all LEDs
+
+  if(currentTime - prevTimeLed >= LedInterval) {
+    lc.clearDisplay(0); prevTimeLed = currentTime;
   }
 }
 
@@ -115,18 +82,18 @@ void setup() {
   /*Gy-521 setup*/
   Wire.begin();                     // start I2C library
   Wire.beginTransmission(MPU_ADDR); // Begin transmission to I2C slave ( GY-521 )
-  Wire.write(0x6B);                 // PWR_MGMT_1 - write to  Power Management register 0x6B B not 8 !
+  Wire.write(0x6B);                 // PWR_MGMT_1 - write to  Power Management register 0x6B
   Wire.write(0);                    // 0 -> wake up MPU-6050
   Wire.endTransmission(true);       // End transmission
   Serial.begin(9600);               // start serial communication 9600 bits/second
 
   /*Display setup*/
   lc.shutdown(0,false); // Wakeup call for MAX72XX 
-  lc.setIntensity(0,7); // Set brightness to 7/15
+  lc.setIntensity(0,15); // Set brightness to 7/15
   lc.clearDisplay(0);   // Clear display
 
   /*Callibration*/
-  delay(1000);
+  delay(500);
   for(int i2 = 0; i2 < callibrationDeltaReads; i2++) { //Gy521 reads
     readFromGy521(x1, y1, z1);             //FIRST read
     delay(Gy521_ReadInterval);             //DELAY
@@ -148,6 +115,7 @@ void loop() {
   if(readFirst == true && (currentTime - prevTime >= Gy521_ReadInterval)) { 
     readFromGy521(x1, y1, z1);
     calcTotalDelta();
+
     prevTime = currentTime;
     readFirst = false;
   }
