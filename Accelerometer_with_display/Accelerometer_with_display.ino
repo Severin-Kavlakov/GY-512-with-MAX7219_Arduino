@@ -6,6 +6,8 @@ unsigned long int prevTime;
 unsigned long int prevTimeDisplay; //separate timer for display, does not work without it 
 unsigned long int currentTime;
 
+#define buzzerPin 3 // Active buzzer pin Digital pin 3 (PWM)
+
 LedControl lc = LedControl(12,11,10,1); // new class lc as LedControl; pin 12 - DataIn;  pin 11 - CLK;  pin 10 - CS (CHIP SELECT / LOAD); We have 1 MAX72XX
 int ledsIndex;                          // How many leds to light up after dXYZ is found
 uint8_t row, col;                       // accesorry vairables for display
@@ -20,7 +22,7 @@ float dXYZ;
 //timing virables
 const unsigned int Gy521_ReadsPerSecond = 20;
 const unsigned int Display_FPS = 20;
-unsigned long int Gy521_ReadInterval = 1000/Gy521_ReadsPerSecond;
+unsigned long int Gy521_ReadInterval = 1000/Gy521_ReadsPerSecond; // in miliseconds
 unsigned long int Display_WriteInterval = 1000/Display_FPS;
 
 //Callibration, constants are computed once at boot
@@ -59,24 +61,21 @@ void calcTotalDelta() {
   dXYZ = sqrt((dX*dX) + (dY*dY) + (dZ*dZ));             // Calculate size of vibration's vector
 }
 
-const unsigned int LedInterval = 100; // miliseconds per led
-unsigned int prevTimeLed = 0;         // milisecond timer for each led
-
+unsigned int prevTimeLed = 0;      // milisecond timer for leds
 void writeToDisplay() {
   //map the dXYZ to 0-64, use CallibrationdXYZ as 0, constrain to (0-63)
-  ledsIndex = map((long)dXYZ, (long)CallibrationdXYZaverage, 2048, 0, 63);
+  ledsIndex = map((long)dXYZ, (long)(CallibrationdXYZaverage), 1024, 0, 63);
   ledsIndex = constrain(ledsIndex, 0, 63);
 
   for (int i1 = 0; i1 <= ledsIndex; i1++) {
     row = i1 % 8; // 0, 1, 2, 3, 4, 5, 6, 7
     col = i1 / 8; // 0, 0, 0, 0, 0, 0, 0, 1, ... 2 etc
     lc.setLed(0, row, col, true);
+    delay(Display_FPS*2);//?
   }
-
-  if(currentTime - prevTimeLed >= LedInterval) {
-    lc.clearDisplay(0); prevTimeLed = currentTime;
-  }
+  lc.clearDisplay(0);
 }
+
 
 void setup() {
   /*Gy-521 setup*/
@@ -103,6 +102,8 @@ void setup() {
     delay(Gy521_ReadInterval);             //DELAY
   }
   CallibrationdXYZaverage = CallibrationdXYZsum / callibrationDeltaReads;   //find AVERAGE and store it in CallibrationdXYZaverage
+
+
 }
 
 /*VOID LOOP*/
@@ -133,9 +134,9 @@ void loop() {
     Serial.print(" | z2: "); Serial.print(convert_int16_to_str(z2));
     Serial.print(" |       dX: "); Serial.print(convert_int16_to_str(dX));
     Serial.print(" | dY: "); Serial.print(convert_int16_to_str(dY));
-    Serial.print(" | dZ: "); Serial.print(convert_int16_to_str(dZ));
+    Serial.print(" | dZ: "); Serial.print(convert_int16_to_str(dZ)); */
     Serial.print(" |           dXYZ: "); Serial.println(convert_float_to_str(dXYZ));
-    */
+    
     prevTime = currentTime;
     readFirst = true;
   }
