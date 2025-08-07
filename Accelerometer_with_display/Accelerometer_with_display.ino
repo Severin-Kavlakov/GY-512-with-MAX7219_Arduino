@@ -1,12 +1,11 @@
 #include <Wire.h>       //I2C library
 #include "LedControl.h" //MAX72XX library
 
-// counting time in miliseconds, max is 4 294 967 295 ~~ 49,710269618055 days
-unsigned long int prevTime;
-unsigned long int prevTimeDisplay; //separate timer for display, does not work without it 
+// counting time in miliseconds, max is 4 294 967 295 ~~ 49,710269618055 days, each task has its own timer
 unsigned long int currentTime;
-
-#define buzzerPin 3 // Active buzzer pin Digital pin 3 (PWM)
+unsigned long int prevTime = millis();
+unsigned long int prevTimeDisplay = millis();
+unsigned long int prevTimeBuzzer = millis();
 
 LedControl lc = LedControl(12,11,10,1); // new class lc as LedControl; pin 12 - DataIn;  pin 11 - CLK;  pin 10 - CS (CHIP SELECT / LOAD); We have 1 MAX72XX
 int ledsIndex;                          // How many leds to light up after dXYZ is found
@@ -20,8 +19,8 @@ float dX, dY, dZ;
 float dXYZ;
 
 //timing virables
-const unsigned int Gy521_ReadsPerSecond = 20;
-const unsigned int Display_FPS = 20;
+const unsigned int Gy521_ReadsPerSecond = 50;
+const unsigned int Display_FPS = 50;
 unsigned long int Gy521_ReadInterval = 1000/Gy521_ReadsPerSecond; // in miliseconds
 unsigned long int Display_WriteInterval = 1000/Display_FPS;
 
@@ -30,7 +29,11 @@ const int callibrationSeconds = 5;
 const int callibrationDeltaReads = callibrationSeconds * Gy521_ReadsPerSecond;
 float CallibrationdXYZsum = 0;
 float CallibrationdXYZaverage = 0;
-
+/*
+#define buzzerPin 3 // Active buzzer pin Digital pin 3 (PWM)
+bool buzzerActive = false; //current state of buzzer
+bool shouldBeBuzzing = false;
+*/
 // converts int16 and float to string, resulting strings will have THE SAME LENGHT in the debug monitor. uses temporary virable
 char temp_int_str[6]; 
 char* convert_int16_to_str(int16_t i){sprintf(temp_int_str, "%6d", i); return temp_int_str;}   //int resulting char limit and no decimal points
@@ -60,9 +63,8 @@ void calcTotalDelta() {
   dX = fabs(x2-x1); dY = fabs(y2-y1); dZ = fabs(z2-z1); // Find the X, Y and Z companents of the vibration
   dXYZ = sqrt((dX*dX) + (dY*dY) + (dZ*dZ));             // Calculate size of vibration's vector
 }
-
-unsigned int prevTimeLed = 0;      // milisecond timer for leds
-void writeToDisplay() {
+/*
+void writeToDisplay_ORIGINAL() {
   //map the dXYZ to 0-64, use CallibrationdXYZ as 0, constrain to (0-63)
   ledsIndex = map((long)dXYZ, (long)(CallibrationdXYZaverage), 1024, 0, 63);
   ledsIndex = constrain(ledsIndex, 0, 63);
@@ -71,11 +73,48 @@ void writeToDisplay() {
     row = i1 % 8; // 0, 1, 2, 3, 4, 5, 6, 7
     col = i1 / 8; // 0, 0, 0, 0, 0, 0, 0, 1, ... 2 etc
     lc.setLed(0, row, col, true);
-    delay(Display_FPS*2);//?
+    delay(10);//?
   }
   lc.clearDisplay(0);
 }
+*/
+int currentLedStep;
+bool displayActive;
+unsigned long int lastLedUpdate = millis();
 
+void startDisplay() {
+  // Calculate how many LEDs should be turned on, map the dXYZ to 0-64, use CallibrationdXYZ as 0, constrain to (0-63)
+  ledsIndex = map((long)dXYZ, (long)(CallibrationdXYZaverage)/*0*/, 1024, 0, 63);
+  ledsIndex = constrain(ledsIndex, 0, 63);
+  
+  currentLedStep = 0;
+  displayActive = true;
+  lastLedUpdate = millis();
+  lc.clearDisplay(0); // clear display at the start
+}
+
+unsigned long int currentTimeDisplayUpdate = millis();
+void updateDisplay() {
+  if (!displayActive) return;
+
+  currentTimeDisplayUpdate = millis();
+
+  if (currentTimeDisplayUpdate - lastLedUpdate >= 5) {
+    row = currentLedStep % 8;
+    col = currentLedStep / 8;
+    lc.setLed(0, row, col, true);
+    currentLedStep++;
+    lastLedUpdate = currentTimeDisplayUpdate;
+    
+    if(currentLedStep > 63) {currentLedStep = 0}
+    
+    // CLEAR DISPLAY when all LEDs are lit
+    if (currentLedStep > ledsIndex) {
+      displayActive = false;
+      lc.clearDisplay(0);
+    }
+  }
+}
 
 void setup() {
   /*Gy-521 setup*/
@@ -87,40 +126,41 @@ void setup() {
   Serial.begin(9600);               // start serial communication 9600 bits/second
 
   /*Display setup*/
-  lc.shutdown(0,false); // Wakeup call for MAX72XX 
+  lc.shutdown(0,false);  // Wakeup call for MAX72XX 
   lc.setIntensity(0,15); // Set brightness to 7/15
-  lc.clearDisplay(0);   // Clear display
+  lc.clearDisplay(0);    // Clear display
+
+  /*Buzzer setup*/
+  pinMode(buzzerPin, OUTPUT);
 
   /*Callibration*/
-  delay(500);
+  delay(100);
   for(int i2 = 0; i2 < callibrationDeltaReads; i2++) { //Gy521 reads
-    readFromGy521(x1, y1, z1);             //FIRST read
-    delay(Gy521_ReadInterval);             //DELAY
-    readFromGy521(x2, y2, z2);             //SECOND read
-    calcTotalDelta();                      //CALCULATE DELTAS
-    CallibrationdXYZsum += dXYZ;           //add dXYZ to CallibrationdXYZsum
-    delay(Gy521_ReadInterval);             //DELAY
+    readFromGy521(x1, y1, z1);   //FIRST read
+    delay(Gy521_ReadInterval);   //DELAY
+    readFromGy521(x2, y2, z2);   //SECOND read
+    calcTotalDelta();            //CALCULATE DELTAS
+    CallibrationdXYZsum += dXYZ; //add dXYZ to CallibrationdXYZsum
+    delay(Gy521_ReadInterval);   //DELAY
   }
-  CallibrationdXYZaverage = CallibrationdXYZsum / callibrationDeltaReads;   //find AVERAGE and store it in CallibrationdXYZaverage
-
-
+  CallibrationdXYZaverage = CallibrationdXYZsum / callibrationDeltaReads; //find AVERAGE and store it in CallibrationdXYZaverage
 }
+
 
 /*VOID LOOP*/
 bool readFirst = true; //first read
-
 void loop() {
   currentTime = millis(); //Capture current time
 
-  //FIRST Gy521 sensor read
-  if(readFirst == true && (currentTime - prevTime >= Gy521_ReadInterval)) { 
+  /*FIRST Gy521 sensor read*/
+  if(readFirst && (currentTime - prevTime >= Gy521_ReadInterval)) { 
     readFromGy521(x1, y1, z1);
     calcTotalDelta();
 
     prevTime = currentTime;
     readFirst = false;
   }
-  //SECOND Gy521 sensor read 
+  /*SECOND Gy521 sensor read*/
   if(readFirst == false && (currentTime - prevTime >= Gy521_ReadInterval)) { 
     readFromGy521(x2, y2, z2);
     calcTotalDelta();
@@ -134,15 +174,30 @@ void loop() {
     Serial.print(" | z2: "); Serial.print(convert_int16_to_str(z2));
     Serial.print(" |       dX: "); Serial.print(convert_int16_to_str(dX));
     Serial.print(" | dY: "); Serial.print(convert_int16_to_str(dY));
-    Serial.print(" | dZ: "); Serial.print(convert_int16_to_str(dZ)); */
+    Serial.print(" | dZ: "); Serial.print(convert_int16_to_str(dZ));
     Serial.print(" |           dXYZ: "); Serial.println(convert_float_to_str(dXYZ));
-    
+    */
     prevTime = currentTime;
     readFirst = true;
   }
-  
+
+  /*Dispaly logic*/
   if (currentTime - prevTimeDisplay >= Display_WriteInterval) {
-    writeToDisplay();
+    startDisplay();
     prevTimeDisplay = currentTime;
   }
+  updateDisplay();
+  Serial.print(row); Serial.print(" "); Serial.println(col);
+/*
+  //Buzzer logic
+  if (currentTime - prevTimeBuzzer >= 100) {
+    shouldBeBuzzing = ledsIndex > 0; // how many leds to ignore before buzzing / MAKING A SOUND
+    if (shouldBeBuzzing != buzzerActive) {
+      digitalWrite(buzzerPin, shouldBeBuzzing ? HIGH : LOW);
+      buzzerActive = shouldBeBuzzing;
+    }
+
+    prevTimeBuzzer = currentTime;
+  }
+*/
 }
