@@ -21,27 +21,45 @@ int16_t x1, y1, z1;        // first read
 int16_t x2, y2, z2;        // second read
 float dX, dY, dZ;          //Deltas of X,Y,Z
 float dXYZ;                //Sum of vectors dX+dY+dZ
-
-const uint16_t Gy521_ReadsPerSecond = 50;
+const uint16_t Gy521_ReadsPerSecond = 25;
 const uint16_t Gy521_ReadInterval = 1000/Gy521_ReadsPerSecond;//miliseconds
 
-const uint8_t n = 6;
-const uint8_t SecondsToFindMaxdXYZ[n] = {5, 10, 15, 30, 60, 120};//seconds
 const uint8_t buttonPin = 2;
+uint16_t maxdXYZ;
+const uint8_t n = 5;
+const uint8_t bufferSizeSeconds[n] = {5, 10, 15, 30, 60};
+uint8_t index = 0;
+const uint16_t bufferSize = bufferSizeSeconds[n-1]*Gy521_ReadsPerSecond;
+class Buffer { //cut-down version of a queue data structure
+  public:
+    uint16_t last;
+    uint16_t Array[bufferSize];
 
-uint16_t maxdXYZ;//NEED a function to find this max
-uint16_t BufferArray[/*max in array * reads per second*/120*Gy521_ReadsPerSecond];
-uint16_t ElementsFrom_BufferArray_ToFindMaxdXYZ = SecondsToFindMaxdXYZ[2]*Gy521_ReadsPerSecond;
+    Buffer(){ last=0; } 
+    
+    void insert(int value) {
+      Array[last] = value;
 
+      if (last >= bufferSize) { 
+        last = 0;
+      }
+      else {
+        last++;
+      }
+    }
+};
+Buffer buffer;
+uint16_t mostRecentIndex;
+uint16_t oldestIndex;
 
-/*Converts float to string, output has the SAME LENGHT in SERIAL MONITOR*/
-char temp_float_str[6];//output char limit
+/*Converts float to string, output always has SAME LENGHT in SERIAL MONITOR*/
+char temp_float_str[6];//output characters limit
 char* convert_float_to_str(float f) {dtostrf(f, sizeof(temp_float_str), 0/*decimals*/, temp_float_str); return temp_float_str;}
 
 void readFromGy521(int16_t &x, int16_t &y, int16_t &z) { //+-32768 +; modifies original virables
   Wire.begin();
   Wire.beginTransmission(0x68);        //Start communicating to MPU_ADDR
-  Wire.write(0x3B);                    // starting register 0x3B (ACCEL_XOUT_H)
+  Wire.write(0x3B);                    // start with register 0x3B (ACCEL_XOUT_H)
   Wire.endTransmission(false);         // keep connection active
   Wire.requestFrom(0x68, 6, true);     //Request 6 registers
   x = Wire.read()<<8 | Wire.read();    // read: 0x3B(ACCEL_XOUT_H) and 0x3C(ACCEL_XOUT_L)
@@ -58,7 +76,7 @@ void readFromGy521(int16_t &x, int16_t &y, int16_t &z) { //+-32768 +; modifies o
 }
 void calcTotalDelta() {//19620 parts max = 2G
   dX = abs(x2-x1); dY = abs(y2-y1); dZ = abs(z2-z1);
-  dXYZ = ( sqrt(dX*dX + dY*dY + dZ*dZ) /16384)*9810; //1G =16384parts = 9.81m/s^2 = 9810mm/s^2
+  dXYZ = (sqrt(dX*dX + dY*dY + dZ*dZ)/16384)*9810; //1G= 16384parts= 9.81m/s^2= 9810mm/s^2
 }
 
 void setup() {
@@ -66,7 +84,7 @@ void setup() {
   /*Gy-521 setup*/
   Wire.begin();                     //Start I2C library
   Wire.beginTransmission(MPU_ADDR); // Begin transmission to I2C slave GY-521
-  Wire.write(0x6B);                 // PWR_MGMT_1 - write to Power Management register 0x6B
+  Wire.write(0x6B);                 // write to Power Management(PWR_MGMT_1) register 0x6B
   Wire.write(0);                    // wake up MPU-6050
   Wire.endTransmission(true);       //End transmission
   //Serial.begin(9600);               // start serial communication 9600 bits/second
@@ -74,6 +92,13 @@ void setup() {
 }
 void loop() {
   currentTime = millis();
+
+  if(index >= n-1) { //index to choose from different buffer sizes in seconds
+    index = 0; 
+  }
+  if(digitalRead(buttonPin)==HIGH) { //if button pressed choose next buffer size in seconds
+    ++index;
+  }
 
   if(firstRead && (currentTime - prevTime >= Gy521_ReadInterval)) { //Gyro FIRST read
     readFromGy521(x1, y1, z1);
@@ -83,24 +108,29 @@ void loop() {
   }
   if(!firstRead && (currentTime - prevTime >= Gy521_ReadInterval)) { //Gyro SECOND read
     readFromGy521(x2, y2, z2);
-    calcTotalDelta();
 
-    //Serial.print("dXYZ: "); Serial.println(convert_float_to_str(dXYZ)); //output to serial monitor
+    calcTotalDelta();
+    buffer.insert(dXYZ);//write dXYZ to buffer
+
+    //needs an overflow to work
+    //maxdXYZ = ?//max of all elements between most recent and oldest indexes
+    mostRecentIndex = buffer.last; // most recent index in buffer.Array of dXYZ snapshots
+    oldestIndex = buffer.last - (bufferSizeSeconds[index]*Gy521_ReadsPerSecond); //oldest index in buffer.Array of dXYZ
+    //decrement a counter i, start at mostRecentIndex, end at oldestIndex
+    // for every element of buffer.Array[i] do:
+    //  add to a temp[] array at temp[i]
+
+    //when temp is full: sort it and output the max
+    
+
+    //Serial.print("dXYZ: "); Serial.println(convert_float_to_str(dXYZ));             //output to serial monitor
     lcd.setCursor(0, 0); lcd.print("Max: "); lcd.print("19620"); lcd.print("mm/s^2"); //print result
-    lcd.setCursor(0, 1); lcd.print("Buffer: "); lcd.print("256"); lcd.print("s"); //print the max
+    lcd.setCursor(0, 1); lcd.print("Buffer: "); lcd.print(bufferSizeSeconds[index]); lcd.print("s");          
 
     prevTime = currentTime;
     firstRead = true;
   }
-  //button check
 }
-//buffer array for dXYZ - array[seconds*reads per second]
-//i=-1
-//repeat until array[last] =! null
-//  array[i+1] = dXYZ
-// find max in array, print it
-//check for button press, choose next option from SecondsToFindMaxdXYZ
-
 /*QUEUE = first in first out
     4 -> 3 -> 2 -> 1
     /               \
@@ -116,6 +146,3 @@ void loop() {
     /               \
   back-most recent   front-oldest    
 */
-
-
-
