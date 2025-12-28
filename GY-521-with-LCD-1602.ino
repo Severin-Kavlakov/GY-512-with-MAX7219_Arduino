@@ -29,28 +29,6 @@ uint16_t maxdXYZ;
 const uint8_t n = 5;
 const uint8_t bufferSizeSeconds[n] = {5, 10, 15, 30, 60};
 uint8_t index = 0;
-const uint16_t bufferSize = bufferSizeSeconds[n-1]*Gy521_ReadsPerSecond;
-class Buffer { //cut-down version of a queue data structure
-  public:
-    uint16_t last;
-    uint16_t Array[bufferSize];
-
-    Buffer(){ last=0; } 
-    
-    void insert(int value) {
-      Array[last] = value;
-
-      if (last >= bufferSize) { 
-        last = 0;
-      }
-      else {
-        last++;
-      }
-    }
-};
-Buffer buffer;
-uint16_t mostRecentIndex;
-uint16_t oldestIndex;
 
 /*Converts float to string, output always has SAME LENGHT in SERIAL MONITOR*/
 char temp_float_str[6];//output characters limit
@@ -110,18 +88,6 @@ void loop() {
     readFromGy521(x2, y2, z2);
 
     calcTotalDelta();
-    buffer.insert(dXYZ);//write dXYZ to buffer
-
-    //needs an overflow to work
-    //maxdXYZ = ?//max of all elements between most recent and oldest indexes
-    mostRecentIndex = buffer.last; // most recent index in buffer.Array of dXYZ snapshots
-    oldestIndex = buffer.last - (bufferSizeSeconds[index]*Gy521_ReadsPerSecond); //oldest index in buffer.Array of dXYZ
-    //decrement a counter i, start at mostRecentIndex, end at oldestIndex
-    // for every element of buffer.Array[i] do:
-    //  add to a temp[] array at temp[i]
-
-    //when temp is full: sort it and output the max
-    
 
     //Serial.print("dXYZ: "); Serial.println(convert_float_to_str(dXYZ));             //output to serial monitor
     lcd.setCursor(0, 0); lcd.print("Max: "); lcd.print("19620"); lcd.print("mm/s^2"); //print result
@@ -131,18 +97,7 @@ void loop() {
     firstRead = true;
   }
 }
-/*QUEUE = first in first out
-    4 -> 3 -> 2 -> 1
-    /               \
-  back-most recent  front-oldest
-
-  INSERT/PUSH:
-    5 -> 4 -> 3 -> 2 -> 1
-    /                     \
-  back-most recent        front-oldest
-
-  DEQUEUE/POP:
-    5 -> 4 -> 3 -> 2
-    /               \
-  back-most recent   front-oldest    
-*/
+// 3 promenlivi
+// dosegashen max
+//  segashen maximum
+// broyach za broy na cikli
