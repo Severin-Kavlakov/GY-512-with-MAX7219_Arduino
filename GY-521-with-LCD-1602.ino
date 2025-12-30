@@ -13,23 +13,22 @@
 LiquidCrystal lcd(7, 8, 9, 10, 11, 12); //initialize library with numbers of interface pins
 
 const uint16_t Gy521_ReadsPerSecond = 100, Gy521_ReadInterval = 1000/Gy521_ReadsPerSecond; //miliseconds
-uint16_t counter = 0;
-uint32_t prevTime = millis(); //count time in miliseconds, max is 4 294 967 295 ~~ 49,710269618055 days
+uint32_t prevTime; //count time in miliseconds, max is 4 294 967 295 ~~ 49,710269618055 days
 uint32_t currentTime;
 
 const int MPU_ADDR = 0x68; //I2C address of MPU-6050, If pin AD0 = HIGH -> I2C address = 0x69
 bool firstRead = true;     //First, second read of GY521
 int16_t x1, y1, z1, x2, y2, z2;
-float dX, dY, dZ;          //Deltas of X,Y,Z
-float dXYZ;               
-float previousdXYZ, currentdXYZ, currentMaxdXYZ, finalMaxdXYZ;
+float dX, dY, dZ, dXYZ;    //Deltas of X,Y,Z         
+float previousdXYZ;
+float currentMaxdXYZ, finalMaxdXYZ;
 
 const uint8_t potentiometerPin = A0;
 const uint8_t bufferSizeSeconds[5] = {5, 10, 15, 30, 60};
 uint8_t index = 0;
 
-char finalMaxdXYZOutput[5];
-char* convert_float_to_str(float f) {dtostrf(f, sizeof(finalMaxdXYZOutput), 0/*decimals*/, finalMaxdXYZOutput); return finalMaxdXYZOutput;}
+char finalMaxdXYZOutput[7];
+char* convert_float_to_str(float f) {dtostrf(f, sizeof(finalMaxdXYZOutput), 1/*decimals*/, finalMaxdXYZOutput); return finalMaxdXYZOutput;}
 char IndexOutput[2];
 char* convert_uint16_to_str(uint16_t i) {sprintf(IndexOutput, "%2d", i); return IndexOutput;}
 
@@ -66,11 +65,12 @@ void setup() {
   Wire.endTransmission(true);       //End transmission
   /*LCD setup - columns, rows*/
   lcd.begin(16, 2); 
-  //Serial.begin(9600);               // start serial communication 9600 bits/second
+  Serial.begin(9600);               // start serial communication 9600 bits/second
 }
+
+
 void loop() {
   currentTime = millis();
-  currentdXYZ = dXYZ;
   /*index to choose from different buffer sizes in seconds*/
   index = map(analogRead(potentiometerPin), 0, 1023, 0, 5);
 
@@ -83,35 +83,38 @@ void loop() {
   if(!firstRead && (currentTime - prevTime >= Gy521_ReadInterval)) { //Gyro SECOND read
     readFromGy521(x2, y2, z2);
     calcTotalDelta();
-    ++counter; //one cycle of dXYZ calculation completed
 
-    if(previousdXYZ > currentdXYZ){
+    if(previousdXYZ > dXYZ){
       currentMaxdXYZ = previousdXYZ;
-
-      previousdXYZ = currentdXYZ;
     }
-    if(previousdXYZ < currentdXYZ){
-      currentMaxdXYZ = currentdXYZ;
-
-      previousdXYZ = currentdXYZ;
+    if(previousdXYZ < dXYZ) {
+      currentMaxdXYZ = dXYZ;
     }
     
+    previousdXYZ = dXYZ;
 
-    //Serial.print("index output: "); Serial.println(IndexOutput);               //output to serial monitor
-    lcd.setCursor(0, 0); lcd.print("Max:"); lcd.print(convert_float_to_str()); lcd.print("mm/s^2"); //print result
-    lcd.setCursor(0, 1); lcd.print("Buffer: "); lcd.print(convert_uint16_to_str(bufferSizeSeconds[index])); lcd.print("s");          
+    if(currentMaxdXYZ > finalMaxdXYZ) {
+      finalMaxdXYZ = currentMaxdXYZ; Serial.println("final max SET");
+    }
+
+    lcd.setCursor(0, 0); lcd.print("Max:"); lcd.print(convert_float_to_str(finalMaxdXYZ)); lcd.print("mm/s^");
+    lcd.setCursor(0, 1); lcd.print("Buffer: "); lcd.print(convert_uint16_to_str(bufferSizeSeconds[index])); lcd.print("s    2"); //print result
 
     prevTime = currentTime;
     firstRead = true;
+  }
+
+  currentMaxdXYZ = 0;
+  uint16_t a = bufferSizeSeconds[index];
+  if(currentTime - prevTime >= a*1000) {    //never executed?? - old
+    finalMaxdXYZ = dXYZ;
+    Serial.println("    final max RESET");
   }
 }
 // 3 promenlivi:
 // dosegashen max
 // + segashen max
-
-// if current max > outputMax -> outputMax = current max 
-// clear OUTPUT max, every X seconds depends on counter
-
 // + broyach za broy na cikli ;;;
 
-// maksimum v zavisimost ot broyacha
+// + if(current max > outputMax) { outputMax = current max ; } 
+// clear outputMax, every (seconds = counter * 2 * reads per second ) seconds
